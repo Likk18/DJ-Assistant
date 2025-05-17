@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DJ Set Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Scroll containers */
+    #trending-tracks, #suggested-tracks {
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-6">
+    <h1 class="text-3xl font-bold mb-6">🎧 Build Your DJ Set</h1>
+
+    <!-- Genre + Country Selection -->
+    <form id="track-form" class="mb-6 bg-white p-4 rounded shadow max-w-3xl mx-auto">
+      <div class="flex flex-col md:flex-row gap-4">
+        <div class="flex-1">
+          <label for="country" class="block text-sm font-medium text-gray-700">Country</label>
+          <input type="text" id="country" value="Germany" class="mt-1 block w-full border border-gray-300 rounded-md p-2" />
+        </div>
+        <div class="flex-1">
+          <label for="genre" class="block text-sm font-medium text-gray-700">Genre</label>
+          <input type="text" id="genre" value="techno" class="mt-1 block w-full border border-gray-300 rounded-md p-2" />
+        </div>
+        <div class="flex items-end">
+          <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Get Tracks</button>
+        </div>
+      </div>
+    </form>
+
+    <!-- Current DJ Set (top full width) -->
+    <section id="set-section" class="bg-white p-4 rounded shadow mb-8 max-w-7xl mx-auto">
+      <h2 class="text-xl font-semibold mb-4">🎵 Current DJ Set</h2>
+      <div id="dj-set" class="flex flex-wrap gap-4"></div>
+    </section>
+
+    <!-- Side by side: Trending tracks and Suggested tracks -->
+    <div class="flex gap-8 max-w-7xl mx-auto">
+
+      <!-- Trending Tracks -->
+      <section class="flex-1 bg-white p-4 rounded shadow">
+        <h2 class="text-xl font-semibold mb-4">🔥 Trending Tracks</h2>
+        <div id="trending-tracks" class="space-y-4"></div>
+      </section>
+
+      <!-- Suggested Compatible Tracks -->
+      <section class="flex-1 bg-white p-4 rounded shadow">
+        <h2 class="text-xl font-semibold mb-4">✨ Suggested Tracks</h2>
+        <div id="suggested-tracks" class="space-y-4"></div>
+      </section>
+    </div>
+  </div>
+
+<script>
+  const form = document.getElementById('track-form');
+  const trendingContainer = document.getElementById('trending-tracks');
+  const suggestedContainer = document.getElementById('suggested-tracks');
+  const djSetContainer = document.getElementById('dj-set');
+
+  let trendingTracks = [];
+  let suggestedTracks = [];
+  let currentSet = [];
+  let genre = '';
+  let country = '';
+  let userId = sessionStorage.getItem('user_id') || 'default_user'; // Persist user_id across sessions
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    trendingContainer.innerHTML = '';
+    suggestedContainer.innerHTML = '';
+    djSetContainer.innerHTML = '';
+    currentSet = [];
+    suggestedTracks = [];
+
+    genre = document.getElementById('genre').value.trim();
+    country = document.getElementById('country').value.trim();
+
+    // Start a new DJ set
+    await fetch('/start-set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, genre, country })
+    });
+
+    // Fetch trending tracks
+    const res = await fetch(`/tracks?genre=${encodeURIComponent(genre)}&country=${encodeURIComponent(country)}`);
+    trendingTracks = await res.json();
+    renderTrendingTracks();
+    renderSet();
+    await renderSuggestedTracks();
+  });
+
+  function renderTrendingTracks() {
+    trendingContainer.innerHTML = '';
+    trendingTracks.forEach(track => {
+      const card = createTrackCard(track, () => addToSet(track.id, 'trending'));
+      trendingContainer.appendChild(card);
+    });
+  }
+
+  function renderSet() {
+    djSetContainer.innerHTML = '';
+    currentSet.forEach(track => {
+      const card = createTrackCard(track, null, true);
+      djSetContainer.appendChild(card);
+    });
+  }
+
+  async function renderSuggestedTracks() {
+    suggestedContainer.innerHTML = '';
+    if (currentSet.length === 0) {
+      suggestedContainer.innerHTML = '<p class="text-gray-500 italic">Add a track to your set to see suggestions.</p>';
+      return;
+    }
+
+    try {
+      const res = await fetch(`/suggest-tracks?user_id=${encodeURIComponent(userId)}`);
+      suggestedTracks = await res.json();
+      if (!Array.isArray(suggestedTracks)) {
+        throw new Error('Invalid suggestions response');
+      }
+
+      if (suggestedTracks.length === 0) {
+        suggestedContainer.innerHTML = '<p class="text-gray-500 italic">No compatible tracks found.</p>';
+        return;
+      }
+
+      suggestedTracks.forEach(track => {
+        const card = createTrackCard(track, () => addToSet(track.id, 'suggested'));
+        suggestedContainer.appendChild(card);
+      });
+    } catch (err) {
+      suggestedContainer.innerHTML = `<p class="text-red-600">Error loading suggestions: ${err.message}</p>`;
+    }
+  }
+
+  function createTrackCard(track, onAddClick, disableAdd = false) {
+    const card = document.createElement('div');
+    card.className = 'flex items-center gap-4 p-2 border rounded shadow';
+
+    const img = document.createElement('img');
+    img.src = track.image_url || 'https://via.placeholder.com/60';
+    img.alt = `Cover for ${track.title}`;
+    img.className = 'w-16 h-16 object-cover rounded';
+
+    const info = document.createElement('div');
+    info.className = 'flex-grow';
+
+    const title = document.createElement('p');
+    title.textContent = track.title;
+    title.className = 'font-semibold';
+
+    const artist = document.createElement('p');
+    artist.textContent = track.artist;
+    artist.className = 'text-sm text-gray-600';
+
+    info.appendChild(title);
+    info.appendChild(artist);
+
+    card.appendChild(img);
+    card.appendChild(info);
+
+    if (!disableAdd && onAddClick) {
+      const button = document.createElement('button');
+      button.textContent = 'Add';
+      button.className = 'bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded';
+      button.onclick = onAddClick;
+      card.appendChild(button);
+    }
+
+    return card;
+  }
+
+  async function addToSet(trackId, source) {
+    let track;
+    if (source === 'trending') {
+      const trackIndex = trendingTracks.findIndex(t => t.id === trackId);
+      if (trackIndex === -1) return;
+      track = trendingTracks.splice(trackIndex, 1)[0];
+    } else if (source === 'suggested') {
+      const trackIndex = suggestedTracks.findIndex(t => t.id === trackId);
+      if (trackIndex === -1) return;
+      track = suggestedTracks.splice(trackIndex, 1)[0];
+    } else {
+      return;
+    }
+
+    // Add track to server-side DJ set
+    const response = await fetch('/add-track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, track_id: trackId })
+    });
+
+    if (!response.ok) {
+      console.error('Failed to add track:', await response.text());
+      return;
+    }
+
+    currentSet.push(track);
+    renderTrendingTracks();
+    renderSet();
+    await renderSuggestedTracks();
+  }
+</script>
+
+</body>
+</html>
